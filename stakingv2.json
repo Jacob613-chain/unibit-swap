@@ -1,0 +1,44 @@
+{
+    "language": "Solidity",
+    "sources": {
+        "contracts/UnibitStakingContract_v2.sol": {
+            "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\nimport \"@openzeppelin/contracts/access/Ownable.sol\";\nimport \"./IERC20.sol\";\n\nstruct Staking {\n    uint amount;\n    uint rewardAmount;\n    uint stakeTime;\n    uint claimTime;\n}\n\ncontract UnibitStakingContractv2 is Ownable {\n\n    uint public divider;\n    uint public dailyRate;\n    uint public totalStaked;\n    uint public currentStaked;\n    address public token;\n    mapping (address => Staking[]) public userStakings;\n\n    constructor (address _token) Ownable(msg.sender) {\n        dailyRate = 411;\n        divider = 100000;\n        token = _token;\n    }\n\n    function stake(uint _amount) external {\n        require (_amount >= 100 ether, \"Cannot stake less than 100 tokens.\");\n\n        IERC20(token).transferFrom(msg.sender, address(this), _amount);\n        userStakings[msg.sender].push(Staking(_amount, 0, block.timestamp, 0));\n        totalStaked += _amount;\n        currentStaked += _amount;\n    }\n\n    function getStakingEarnings(uint _stakingId) public view returns (uint[2] memory) {\n        Staking memory _staking = userStakings[msg.sender][_stakingId];\n        uint claimTime = block.timestamp;\n        if (_staking.claimTime > 0) {\n            return [_staking.rewardAmount, _staking.claimTime];\n        }\n        uint difference = claimTime - _staking.stakeTime;\n\n        uint earningsAmount;\n\n        uint stakedDays = difference / 1 days;\n\n        if (stakedDays > 365 days) {\n            stakedDays = 365 days;\n        }\n\n        uint earnings = _staking.amount * dailyRate * stakedDays / divider;\n        earningsAmount = _staking.amount + earnings;\n\n        return [earningsAmount, claimTime];\n    }\n\n    function claimRewards(uint _stakingId) external {\n        Staking memory _staking = userStakings[msg.sender][_stakingId];\n        uint[2] memory _stakingEarnings = getStakingEarnings(_stakingId);\n\n        require(_staking.claimTime == 0, \"Already claimed rewards.\");\n\n        if (_stakingEarnings[0] > 0) {\n            IERC20(token).transfer(msg.sender, _stakingEarnings[0]);\n        }   \n\n        _staking.rewardAmount = _stakingEarnings[0];\n        _staking.claimTime = _stakingEarnings[1];\n\n        userStakings[msg.sender][_stakingId] = _staking;\n        currentStaked -= _staking.amount;\n    }\n\n    // ADMIN\n\n    function updateDailyRate(uint _value) external onlyOwner {\n        dailyRate = _value;\n    }\n\n    // USER NUMBERS\n\n    function getTotalStakedUntilNow() external view returns (uint) {\n        uint _totalStaked = 0;\n        for (uint i = 0; i < userStakings[msg.sender].length; i++) {\n            _totalStaked += userStakings[msg.sender][i].amount;\n        }\n        return _totalStaked;\n    }\n\n    function getTotalRewardsUntilNow() external view returns (uint) {\n        uint _totalRewards = 0;\n        for (uint i = 0; i < userStakings[msg.sender].length; i++) {\n            _totalRewards += userStakings[msg.sender][i].rewardAmount;\n        }\n        return _totalRewards;\n    }\n\n    function getUserStakings() external view returns (Staking[] memory) {\n        return userStakings[msg.sender];\n    }\n\n}"
+        },
+        "contracts/IERC20.sol": {
+            "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ninterface IERC20 {\n    function transferFrom(\n        address from, \n        address to, \n        uint256 value\n    ) external returns (bool);\n    function transfer(\n        address to, \n        uint256 value\n    ) external returns (bool);\n    function balanceOf(\n        address account\n    ) external returns (uint256);\n}"
+        },
+        "@openzeppelin/contracts/access/Ownable.sol": {
+            "content": "// SPDX-License-Identifier: MIT\n// OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable.sol)\n\npragma solidity ^0.8.20;\n\nimport {Context} from \"../utils/Context.sol\";\n\n/**\n * @dev Contract module which provides a basic access control mechanism, where\n * there is an account (an owner) that can be granted exclusive access to\n * specific functions.\n *\n * The initial owner is set to the address provided by the deployer. This can\n * later be changed with {transferOwnership}.\n *\n * This module is used through inheritance. It will make available the modifier\n * `onlyOwner`, which can be applied to your functions to restrict their use to\n * the owner.\n */\nabstract contract Ownable is Context {\n    address private _owner;\n\n    /**\n     * @dev The caller account is not authorized to perform an operation.\n     */\n    error OwnableUnauthorizedAccount(address account);\n\n    /**\n     * @dev The owner is not a valid owner account. (eg. `address(0)`)\n     */\n    error OwnableInvalidOwner(address owner);\n\n    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);\n\n    /**\n     * @dev Initializes the contract setting the address provided by the deployer as the initial owner.\n     */\n    constructor(address initialOwner) {\n        if (initialOwner == address(0)) {\n            revert OwnableInvalidOwner(address(0));\n        }\n        _transferOwnership(initialOwner);\n    }\n\n    /**\n     * @dev Throws if called by any account other than the owner.\n     */\n    modifier onlyOwner() {\n        _checkOwner();\n        _;\n    }\n\n    /**\n     * @dev Returns the address of the current owner.\n     */\n    function owner() public view virtual returns (address) {\n        return _owner;\n    }\n\n    /**\n     * @dev Throws if the sender is not the owner.\n     */\n    function _checkOwner() internal view virtual {\n        if (owner() != _msgSender()) {\n            revert OwnableUnauthorizedAccount(_msgSender());\n        }\n    }\n\n    /**\n     * @dev Leaves the contract without owner. It will not be possible to call\n     * `onlyOwner` functions. Can only be called by the current owner.\n     *\n     * NOTE: Renouncing ownership will leave the contract without an owner,\n     * thereby disabling any functionality that is only available to the owner.\n     */\n    function renounceOwnership() public virtual onlyOwner {\n        _transferOwnership(address(0));\n    }\n\n    /**\n     * @dev Transfers ownership of the contract to a new account (`newOwner`).\n     * Can only be called by the current owner.\n     */\n    function transferOwnership(address newOwner) public virtual onlyOwner {\n        if (newOwner == address(0)) {\n            revert OwnableInvalidOwner(address(0));\n        }\n        _transferOwnership(newOwner);\n    }\n\n    /**\n     * @dev Transfers ownership of the contract to a new account (`newOwner`).\n     * Internal function without access restriction.\n     */\n    function _transferOwnership(address newOwner) internal virtual {\n        address oldOwner = _owner;\n        _owner = newOwner;\n        emit OwnershipTransferred(oldOwner, newOwner);\n    }\n}\n"
+        },
+        "@openzeppelin/contracts/utils/Context.sol": {
+            "content": "// SPDX-License-Identifier: MIT\n// OpenZeppelin Contracts (last updated v5.0.1) (utils/Context.sol)\n\npragma solidity ^0.8.20;\n\n/**\n * @dev Provides information about the current execution context, including the\n * sender of the transaction and its data. While these are generally available\n * via msg.sender and msg.data, they should not be accessed in such a direct\n * manner, since when dealing with meta-transactions the account sending and\n * paying for execution may not be the actual sender (as far as an application\n * is concerned).\n *\n * This contract is only required for intermediate, library-like contracts.\n */\nabstract contract Context {\n    function _msgSender() internal view virtual returns (address) {\n        return msg.sender;\n    }\n\n    function _msgData() internal view virtual returns (bytes calldata) {\n        return msg.data;\n    }\n\n    function _contextSuffixLength() internal view virtual returns (uint256) {\n        return 0;\n    }\n}\n"
+        }
+    },
+    "settings": {
+        "optimizer": {
+            "enabled": false,
+            "runs": 200
+        },
+        "outputSelection": {
+            "*": {
+                "": [
+                    "ast"
+                ],
+                "*": [
+                    "abi",
+                    "metadata",
+                    "devdoc",
+                    "userdoc",
+                    "storageLayout",
+                    "evm.legacyAssembly",
+                    "evm.bytecode",
+                    "evm.deployedBytecode",
+                    "evm.methodIdentifiers",
+                    "evm.gasEstimates",
+                    "evm.assembly"
+                ]
+            }
+        },
+        "remappings": []
+    }
+}
